@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Pyenv
+.python-version
+
+# UV
+uv.lock
+
+# Runtime data / generated files
+checkpoints.sqlite
+sessions.json
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Input / output data (large files or generated artifacts)
+data/inputs/*
+!data/inputs/.gitkeep
+data/outputs/*
+!data/outputs/.gitkeep
