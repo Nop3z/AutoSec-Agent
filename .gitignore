@@ -61,3 +61,6 @@ data/inputs/*
 !data/inputs/.gitkeep
 data/outputs/*
 !data/outputs/.gitkeep
+
+# Misc
+AGENTS.md
