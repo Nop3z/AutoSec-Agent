@@ -1,13 +1,19 @@
 import os
 
-import os
-
 from langchain_core.messages import HumanMessage
 
 from agent.workflows.cert_graph import cert_graph
 from agent.workflows.crypto_graph import crypto_graph
 from agent.workflows.firmware_graph import firmware_graph
 from agent.workflows.network_graph import network_graph
+from agent.workflows.vuln_graph import vuln_graph
+from agent.workflows.vuln_pipeline_graph import vuln_pipeline_graph
+from agent.workflows.specialized_vuln_graph import (
+    cmd_injection_graph,
+    buffer_overflow_graph,
+    format_string_graph,
+    file_operation_graph,
+)
 from core.state import AutoSecState
 
 OUTPUT_BASE = "data/outputs"
@@ -16,16 +22,24 @@ OUTPUT_BASE = "data/outputs"
 def get_help_text() -> str:
     """返回当前可用的命令列表，后续添加新功能时只需修改此处。"""
     commands = [
-        ("/extract", "使用 binwalk 解包固件"),
+        ("/extract", "使用 binwalk -Me 解包固件"),
+        ("/extract-by-docker", "使用 Docker 部署的 binwalk 解包固件"),
+        ("/export-ai", "从提取的文件生成 AI 分析数据（无需 Ghidra）"),
         ("/protocols", "扫描固件中的通信协议"),
         ("/crypto", "识别固件中的加密算法"),
         ("/certs", "提取固件中的证书和密钥"),
+        ("/vuln", "快速漏洞扫描（含污点分析）"),
+        ("/vuln-full", "完整漏洞流水线（4-Agent深度分析）"),
+        ("/vuln-cmd", "专用命令注入漏洞扫描"),
+        ("/vuln-bof", "专用缓冲区溢出漏洞扫描"),
+        ("/vuln-fmt", "专用格式化字符串漏洞扫描"),
+        ("/vuln-file", "专用文件操作漏洞扫描"),
         ("/help", "显示可用命令"),
         ("/exit", "退出程序"),
     ]
     lines = ["可用命令:"]
     for cmd, desc in commands:
-        lines.append(f"  {cmd:<12} - {desc}")
+        lines.append(f"  {cmd:<16} - {desc}")
     return "\n".join(lines)
 
 
@@ -98,6 +112,12 @@ def main():
         "network_protocols": None,
         "oss_components": None,
         "vuln_findings": None,
+        "vuln_scan_result": None,
+        "vuln_scan_complete": None,
+        "recon_data": None,
+        "cmd_inject_findings": None,
+        "xrefs_analysis": None,
+        "verification_results": None,
         "report_markdown": None,
     }
 
@@ -119,8 +139,54 @@ def main():
             cmd = user_input.split()[0].lower()
 
             if cmd == "/extract":
-                state["messages"].append(HumanMessage(content="帮我解包这个固件"))
+                # 使用本地 binwalk -Me 解包
+                import subprocess
+                import os
+                
+                project_dir = os.path.join(OUTPUT_BASE, project_name)
+                firmware_path = state.get("target_path", "")
+                
+                if not firmware_path or not os.path.exists(firmware_path):
+                    print(f"❌ 未找到固件文件: {firmware_path}")
+                    continue
+                
+                extractions_dir = os.path.join(project_dir, "extractions")
+                os.makedirs(extractions_dir, exist_ok=True)
+                
+                print(f"📦 使用 binwalk -Me 解包固件...")
+                print(f"   固件: {firmware_path}")
+                print(f"   输出目录: {extractions_dir}")
+                
+                try:
+                    result = subprocess.run(
+                        ["binwalk", "-Me", firmware_path],
+                        cwd=extractions_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=300
+                    )
+                    
+                    if result.returncode == 0:
+                        print(f"✅ 解包完成")
+                        print(f"   输出: {extractions_dir}/{os.path.basename(firmware_path)}.extracted/")
+                        if result.stdout:
+                            print(f"\n📋 binwalk 输出:\n{result.stdout[:500]}")
+                    else:
+                        print(f"❌ 解包失败: {result.stderr}")
+                        
+                except FileNotFoundError:
+                    print(f"❌ 未找到 binwalk 命令，请确保已安装 binwalk")
+                except subprocess.TimeoutExpired:
+                    print(f"❌ 解包超时（5分钟）")
+                except Exception as e:
+                    print(f"❌ 解包出错: {e}")
+                
+                continue
+                
+            elif cmd == "/extract-by-docker":
+                state["messages"].append(HumanMessage(content="使用 Docker 部署的 binwalk 解包固件"))
                 graph = firmware_graph
+                
             elif cmd == "/protocols":
                 state["messages"].append(HumanMessage(content="识别这个固件中的通信协议"))
                 graph = network_graph
@@ -130,6 +196,36 @@ def main():
             elif cmd == "/certs":
                 state["messages"].append(HumanMessage(content="提取这个固件中的证书和密钥"))
                 graph = cert_graph
+            elif cmd == "/vuln":
+                state["messages"].append(HumanMessage(content="对 export-for-ai 目录下的二进制导出结果进行漏洞扫描"))
+                graph = vuln_graph
+            elif cmd == "/vuln-full":
+                state["messages"].append(HumanMessage(content="启动完整漏洞分析流水线：信息侦查→高危函数侦查→交叉引用分析→漏洞验证"))
+                graph = vuln_pipeline_graph
+            elif cmd == "/vuln-cmd":
+                state["messages"].append(HumanMessage(content="执行专用命令注入漏洞扫描"))
+                graph = cmd_injection_graph
+            elif cmd == "/vuln-bof":
+                state["messages"].append(HumanMessage(content="执行专用缓冲区溢出漏洞扫描"))
+                graph = buffer_overflow_graph
+            elif cmd == "/vuln-fmt":
+                state["messages"].append(HumanMessage(content="执行专用格式化字符串漏洞扫描"))
+                graph = format_string_graph
+            elif cmd == "/vuln-file":
+                state["messages"].append(HumanMessage(content="执行专用文件操作漏洞扫描"))
+                graph = file_operation_graph
+            elif cmd == "/export-ai":
+                # 直接调用导出生成器
+                from tools.export_ai_generator import generate_export_for_ai
+                print(f"正在为项目 '{project_name}' 生成 AI 分析数据...")
+                result = generate_export_for_ai(project_name)
+                if result["success"]:
+                    print(f"✅ {result['message']}")
+                    for b in result["binaries"]:
+                        print(f"   - {b['name']} ({b['original_path']})")
+                else:
+                    print(f"❌ {result['message']}")
+                continue
             elif cmd == "/help":
                 print(get_help_text())
                 continue

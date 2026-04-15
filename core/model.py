@@ -5,5 +5,5 @@ load_dotenv()
 
 model = init_chat_model(
     model_provider="openrouter",
-    model="openrouter/elephant-alpha",
+    model="deepseek/deepseek-v3.2",
 )
