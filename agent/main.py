@@ -14,6 +14,7 @@ from agent.workflows.specialized_vuln_graph import (
     format_string_graph,
     file_operation_graph,
 )
+from agent.workflows.cmd_injection_llm_graph import cmd_injection_llm_graph
 from core.state import AutoSecState
 
 OUTPUT_BASE = "data/outputs"
@@ -31,6 +32,7 @@ def get_help_text() -> str:
         ("/vuln", "快速漏洞扫描（含污点分析）"),
         ("/vuln-full", "完整漏洞流水线（4-Agent深度分析）"),
         ("/vuln-cmd", "专用命令注入漏洞扫描"),
+        ("/vuln-scan-and-llm", "命令注入扫描+LLM深度分析 (可加数量: 50/all)"),
         ("/vuln-bof", "专用缓冲区溢出漏洞扫描"),
         ("/vuln-fmt", "专用格式化字符串漏洞扫描"),
         ("/vuln-file", "专用文件操作漏洞扫描"),
@@ -205,6 +207,20 @@ def main():
             elif cmd == "/vuln-cmd":
                 state["messages"].append(HumanMessage(content="执行专用命令注入漏洞扫描"))
                 graph = cmd_injection_graph
+            elif cmd == "/vuln-scan-and-llm":
+                parts = user_input.split()
+                limit_arg = parts[1] if len(parts) > 1 else "15"
+                if limit_arg.lower() == "all":
+                    limit_val = 0
+                else:
+                    try:
+                        limit_val = int(limit_arg)
+                    except ValueError:
+                        limit_val = 15
+                from agent.workflows.cmd_injection_llm_graph import set_max_findings
+                set_max_findings(limit_val)
+                state["messages"].append(HumanMessage(content="执行命令注入扫描+LLM深度分析"))
+                graph = cmd_injection_llm_graph
             elif cmd == "/vuln-bof":
                 state["messages"].append(HumanMessage(content="执行专用缓冲区溢出漏洞扫描"))
                 graph = buffer_overflow_graph
@@ -239,8 +255,14 @@ def main():
 
         # 调用选定的 Graph
         final_event = None
-        for event in graph.stream(state, stream_mode="values"):
-            final_event = event
+        try:
+            for event in graph.stream(state, stream_mode="values"):
+                final_event = event
+        except Exception as e:
+            print(f"Graph 执行出错: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
 
         if final_event is None:
             print("AI: 无响应")
